@@ -75,9 +75,9 @@ download the disk image from [Releases](https://github.com/mizorewww/catussh/rel
 
 ## Using catussh
 
-On first use, the guide reads `~/.ssh/config`. Review the hostnames, usernames, addresses and ports, then choose **Import Selected**. Reopen it from **Servers → Import from This Mac…**. Existing names are skipped. Hosts that need a proxy or other unsupported settings are listed for manual setup.
+The setup guide shows which config file it reads, normally `~/.ssh/config`. Review the username, address, port, key file and jump host, then choose **Import Selected**. Selecting a target also selects its new jump host. Reopen the guide from **Servers → Import from This Mac…**.
 
-Imported logins use the Mac’s SSH agent. Check loaded keys with `ssh-add -l`. If you use the default Ed25519 key and it is missing from the agent, run `ssh-add ~/.ssh/id_ed25519` before opening **Terminal** on the server. You can also set a password or key file for that username in **Identities**.
+The guide recognizes an explicit `IdentityFile` or a single available default key. It saves the file location on this Mac and uses the key when connecting. For an encrypted file, enter its passphrase for this session in **Identities → Local key file**. Hosts with no key file can use SSH Agent. An agent login from an earlier import can be selected for **Update login**. An existing username-only bookmark can also receive a key when you select the update. Bookmarks with configured credentials keep their login. Jump chains and ambiguous keys are listed for manual setup.
 
 1. **Add a server**: **New Server** on Home (⇧⌘N).
 2. **Connect**: click a server's tile. **Files** opens SFTP and **Monitor** opens live

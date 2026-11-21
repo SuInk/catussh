@@ -71,6 +71,11 @@ typedef int (^NSRemoteShellSocketProvider)(NSString *host, NSNumber *port, NSNum
            andPrivateKey:(NSString *)privateKey
              andPassword:(nullable NSString *)password;
 - (void)authenticateWithAgent:(NSString *)username;
+/// Reads the selected key file for this authentication only. A missing path
+/// fails this identity without trying another username or method.
+- (void)authenticateWith:(NSString *)username
+            localKeyFile:(nullable NSString *)path
+              passphrase:(nullable NSString *)passphrase NS_SWIFT_NAME(authenticate(username:localKeyFile:passphrase:));
 
 #pragma mark helper
 

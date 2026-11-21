@@ -51,11 +51,16 @@ struct EditIdentityView: View {
                     if offersSSHAgent {
                         Text("SSH Agent").tag(IdentityDraft.Method.sshAgent)
                     }
+                    if original.usesLocalKeyFile {
+                        Text("Local key file").tag(IdentityDraft.Method.localKeyFile)
+                    }
                 }
                 .pickerStyle(.segmented)
             } footer: {
                 if draft.method == .sshAgent {
                     Text("Signs in using the Mac's running SSH agent (SSH_AUTH_SOCK). iPhone and iPad have no SSH agent, so this identity signs in only from catussh on a Mac.")
+                } else if draft.method == .localKeyFile {
+                    Text("The key file stays on the Mac where it was selected. To sign in on this device, choose a key pair or password.")
                 }
             }
 
@@ -64,7 +69,7 @@ struct EditIdentityView: View {
                 keyPairSections
             case .password:
                 passwordSection
-            case .sshAgent:
+            case .sshAgent, .localKeyFile:
                 EmptyView()
             }
 

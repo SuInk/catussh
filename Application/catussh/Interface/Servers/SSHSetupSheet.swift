@@ -2,8 +2,7 @@ import CatusshDesign
 import CatusshModule
 import SwiftUI
 
-/// First-run setup reads connection details. The separate file importer in
-/// Settings can also migrate key files and jump-host relationships.
+/// Preview the route and login that each saved server will use.
 struct SSHSetupSheet: View {
     @EnvironmentObject private var store: CatusshStore
     @Environment(\.dismiss) private var dismiss
@@ -12,6 +11,7 @@ struct SSHSetupSheet: View {
     @State private var scanID = UUID()
     @State private var phase = Phase.reading
     @State private var selected = Set<String>()
+    @State private var importFailure: String?
     @State private var agentStatus: SSHSetupAgentStatus?
     @State private var agentCheckID = UUID()
 
@@ -20,7 +20,7 @@ struct SSHSetupSheet: View {
         case review(OpenSSHConfigPreview)
         case missing
         case failed(String)
-        case finished(Int)
+        case finished(OpenSSHImportResult)
     }
 
     var body: some View {
@@ -31,7 +31,8 @@ struct SSHSetupSheet: View {
                     ProgressView("Looking for SSH hosts…")
                 case let .review(preview):
                     review(preview)
-                    if !preview.hosts.isEmpty { loginHelp }
+                    if preview.hosts.contains(where: { selected.contains($0.alias) && $0.identityFile == nil }) { loginHelp }
+                    if let importFailure { Text(importFailure).foregroundStyle(.rxWarning) }
                 case .missing:
                     Text("This folder has no config file. Choose the folder that contains your OpenSSH config, or add a server manually from Home.")
                 case let .failed(message):
@@ -39,11 +40,10 @@ struct SSHSetupSheet: View {
                         .font(.rxBodyStrong)
                     Text(message).textSelection(.enabled)
                     Text("Choose another folder or add a server manually from Home.")
-                case let .finished(count):
-                    Label("Added \(count) to Servers", systemImage: "checkmark.circle.fill")
+                case let .finished(result):
+                    Label("Added \(result.added), updated \(result.updated)", systemImage: "checkmark.circle.fill")
                         .font(.rxBodyStrong)
-                    Text("Open Terminal on a saved server to connect. These logins use your Mac’s SSH agent. To use a password or a key file, edit the login in Identities.")
-                    loginHelp
+                    Text("Open a server’s Terminal to connect. You can change its login in Identities.")
                 }
             }
             .font(.rxBody)
@@ -66,8 +66,11 @@ struct SSHSetupSheet: View {
                     .keyboardShortcut(.cancelAction)
                 if case let .review(preview) = phase {
                     Button("Import Selected") {
-                        let hosts = preview.hosts.filter { selected.contains($0.alias) }
-                        phase = .finished(store.importOpenSSHHosts(hosts))
+                        do {
+                            phase = .finished(try store.applyOpenSSHImport(selectedAliases: selected, from: preview.hosts))
+                        } catch {
+                            importFailure = error.localizedDescription
+                        }
                     }
                     .buttonStyle(.rxPrimary)
                     .keyboardShortcut(.defaultAction)
@@ -109,12 +112,12 @@ struct SSHSetupSheet: View {
     }
 
     @ViewBuilder private func review(_ preview: OpenSSHConfigPreview) -> some View {
-        let saved = store.savedOpenSSHHostAliases(in: preview.hosts)
-        let available = Set(preview.hosts.map(\.alias)).subtracting(saved)
+        let states = store.openSSHImportStates(for: preview.hosts)
+        let available = Set(preview.hosts.map(\.alias).filter { states[$0] == .new || states[$0] == .update })
         let hideNames = store.machineRedacted == .all
         let hideAddresses = store.machineRedacted != .none
-        Text("Choose the hosts you want to save. Only names, addresses, ports and usernames are imported.")
-        RedactableText((directory.appendingPathComponent("config").path as NSString).abbreviatingWithTildeInPath, redacted: hideAddresses)
+        Text("Review the login and route for each host. Key files stay on this Mac and are opened when you connect.")
+        RedactableText(directory.appendingPathComponent("config").path, redacted: hideAddresses)
             .font(.rxCode)
             .foregroundStyle(.rxInkSecondary)
             .lineLimit(1)
@@ -125,10 +128,22 @@ struct SSHSetupSheet: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: RX.Space.s2) {
                     ForEach(preview.hosts) { host in
-                        let exists = saved.contains(host.alias)
+                        let status = states[host.alias]
+                        let needsJumpUpdate = host.jumpAlias.map { states[$0] == .update && !selected.contains($0) } ?? false
                         Toggle(isOn: Binding(
-                            get: { selected.contains(host.alias) && !exists },
-                            set: { if $0 { selected.insert(host.alias) } else { selected.remove(host.alias) } }
+                            get: { available.contains(host.alias) && selected.contains(host.alias) },
+                            set: { include in
+                                importFailure = nil
+                                if include {
+                                    selected.insert(host.alias)
+                                    if let jump = host.jumpAlias, states[jump] == .new { selected.insert(jump) }
+                                } else {
+                                    selected.remove(host.alias)
+                                    for dependent in preview.hosts where dependent.jumpAlias == host.alias {
+                                        selected.remove(dependent.alias)
+                                    }
+                                }
+                            }
                         )) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -136,15 +151,36 @@ struct SSHSetupSheet: View {
                                     RedactableText("\(host.username)@\(host.hostname) · \(host.port)", redacted: hideAddresses)
                                         .font(.rxCode)
                                         .foregroundStyle(.rxInkSecondary)
+                                    HStack(spacing: RX.Space.s2) {
+                                        Image(systemName: "key")
+                                        if status == .saved {
+                                            Text("Keep saved login")
+                                        } else if let key = host.identityFile {
+                                            RedactableText((key.path as NSString).abbreviatingWithTildeInPath, redacted: hideAddresses)
+                                        } else {
+                                            Text("SSH Agent")
+                                        }
+                                        if let jump = host.jumpAlias {
+                                            Image(systemName: "arrow.turn.up.right")
+                                            RedactableText(String(localized: "via \(jump)"), redacted: hideNames)
+                                        }
+                                    }
+                                    .font(.rxCaption)
+                                    if needsJumpUpdate { Text("Select the jump host update first.").font(.rxCaption) }
                                 }
                                 Spacer()
-                                if exists { Text("Name already saved").font(.rxCaption) }
+                                switch status {
+                                case .saved: Text("Already saved").font(.rxCaption)
+                                case .update: Text("Update login").font(.rxCaption)
+                                case .conflict: Text("Existing settings differ").font(.rxCaption)
+                                default: EmptyView()
+                                }
                             }
                             .lineLimit(1)
                             .truncationMode(.middle)
                         }
                         .rxCheckboxToggle()
-                        .disabled(exists)
+                        .disabled(!available.contains(host.alias) || needsJumpUpdate)
                     }
                     if !preview.skipped.isEmpty {
                         Text("Requires manual setup").font(.rxBodyStrong)
@@ -165,6 +201,7 @@ struct SSHSetupSheet: View {
                     Text("\(selected.intersection(available).count) selected")
                     Spacer()
                     Button(selected.isSuperset(of: available) ? String(localized: "Deselect All") : String(localized: "Select All")) {
+                        importFailure = nil
                         selected = selected.isSuperset(of: available) ? [] : available
                     }
                     .rxLinkButton()
@@ -189,6 +226,7 @@ struct SSHSetupSheet: View {
             guard let folder = urls.first else { return }
             directory = folder
             phase = .reading
+            importFailure = nil
             scanID = UUID()
         }
     }
@@ -201,7 +239,12 @@ struct SSHSetupSheet: View {
                 return try OpenSSHConfigReader.read(directory: folder)
             }.value
             guard !Task.isCancelled else { return }
-            selected = Set(preview.hosts.map(\.alias)).subtracting(store.savedOpenSSHHostAliases(in: preview.hosts))
+            let states = store.openSSHImportStates(for: preview.hosts)
+            selected = Set(preview.hosts.compactMap { host in
+                guard states[host.alias] == .new else { return nil }
+                if let jump = host.jumpAlias, states[jump] == .update { return nil }
+                return host.alias
+            })
             phase = .review(preview)
         } catch {
             guard !Task.isCancelled else { return }

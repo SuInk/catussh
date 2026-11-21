@@ -6,7 +6,18 @@ public struct OpenSSHConfigHost: Hashable, Identifiable, Sendable {
     public let hostname: String
     public let username: String
     public let port: Int
+    public let jumpAlias: String?
+    public let identityFile: URL?
     public var id: String { alias }
+
+    public init(alias: String, hostname: String, username: String, port: Int, jumpAlias: String? = nil, identityFile: URL? = nil) {
+        self.alias = alias
+        self.hostname = hostname
+        self.username = username
+        self.port = port
+        self.jumpAlias = jumpAlias
+        self.identityFile = identityFile
+    }
 }
 
 public struct OpenSSHConfigSkip: Hashable, Identifiable, Sendable {
@@ -22,19 +33,37 @@ public struct OpenSSHConfigPreview: Sendable {
 
 /// Imports endpoint metadata from the selected user configuration. The caller owns
 /// security-scoped access to the directory for the duration of the read. No processes,
-/// system ssh_config, identity files, agent sockets or host-key databases are accessed.
+/// agent sockets or system ssh_config are used. Identity discovery checks file
+/// metadata only. A file-backed login opens the key when it authenticates.
 public enum OpenSSHConfigReader {
     public static func read(directory: URL, defaultUsername: String = NSUserName()) throws -> OpenSSHConfigPreview {
         var parser = Parser(directory: directory.standardizedFileURL.resolvingSymlinksInPath())
         try parser.read(parser.directory.appendingPathComponent("config"), ancestors: [])
+        let defaultIdentity = Result { try parser.identityFile(paths: nil) }
+        var candidates: [String: OpenSSHConfigHost] = [:]
+        var reasons: [String: String] = [:]
+        for alias in parser.aliases {
+            do {
+                candidates[alias] = try parser.resolve(alias, defaultUsername: defaultUsername, defaultIdentity: defaultIdentity)
+            } catch {
+                reasons[alias] = error.localizedDescription
+            }
+        }
+        // A jump is usable only when its own complete definition can be imported.
+        // Resolving in a second pass permits forward references and keeps file order.
         var hosts: [OpenSSHConfigHost] = []
         var skipped: [OpenSSHConfigSkip] = []
         for alias in parser.aliases {
-            do {
-                hosts.append(try parser.resolve(alias, defaultUsername: defaultUsername))
-            } catch {
-                skipped.append(OpenSSHConfigSkip(alias: alias, reason: error.localizedDescription))
+            if let host = candidates[alias] {
+                if let jump = host.jumpAlias, candidates[jump] == nil {
+                    reasons[alias] = String(localized: "ProxyJump host \(jump) is missing or cannot be imported.")
+                } else if let jump = host.jumpAlias, candidates[jump]?.jumpAlias != nil {
+                    reasons[alias] = String(localized: "ProxyJump chains and cycles require manual setup.")
+                } else {
+                    hosts.append(host)
+                }
             }
+            if let reason = reasons[alias] { skipped.append(OpenSSHConfigSkip(alias: alias, reason: reason)) }
         }
         return OpenSSHConfigPreview(hosts: hosts, skipped: skipped)
     }
@@ -202,12 +231,51 @@ private struct Parser {
         arguments.count == 1 && ["no", "false"].contains(arguments[0].lowercased())
     }
 
-    func resolve(_ alias: String, defaultUsername: String) throws -> OpenSSHConfigHost {
+    /// A nil path list means OpenSSH's default names. Explicit IdentityFile entries
+    /// are additive across matching blocks, unlike most first-value-wins settings.
+    func identityFile(paths: [String]?) throws -> URL? {
+        let defaults = ["id_rsa", "id_ecdsa", "id_ecdsa_sk", "id_ed25519", "id_ed25519_sk"]
+        let pathsToCheck = paths ?? defaults.map { "~/.ssh/" + $0 }
+        var candidates: Set<URL> = []
+        for path in pathsToCheck where path.lowercased() != "none" {
+            let url: URL
+            if path.hasPrefix("~/.ssh/") {
+                url = directory.appendingPathComponent(String(path.dropFirst("~/.ssh/".count)))
+            } else if path.hasPrefix("/") {
+                url = URL(fileURLWithPath: path)
+            } else {
+                throw ConfigError("IdentityFile must use an absolute path or ~/.ssh/ inside the selected folder.")
+            }
+            let file = url.standardizedFileURL.resolvingSymlinksInPath()
+            guard !path.split(separator: "/").contains(".."), file.path.hasPrefix(directory.path + "/"),
+                  !path.contains("%"), !path.contains("$"), file.pathExtension != "pub"
+            else {
+                throw ConfigError("IdentityFile must point to a private key inside the selected SSH folder.")
+            }
+            do {
+                let metadata = try file.resourceValues(forKeys: [.isRegularFileKey, .isReadableKey])
+                guard metadata.isRegularFile == true, metadata.isReadable == true else {
+                    throw ConfigError("The specified identity file is missing or unreadable.")
+                }
+            } catch let error as CocoaError where paths == nil && (error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile) {
+                continue // Default names are optional; an explicitly named file is required.
+            } catch {
+                throw ConfigError("The specified identity file is missing or unreadable.")
+            }
+            candidates.insert(file)
+        }
+        guard candidates.count <= 1 else { throw ConfigError("Multiple candidate SSH keys require manual identity selection.") }
+        return candidates.first
+    }
+
+    func resolve(_ alias: String, defaultUsername: String, defaultIdentity: Result<URL?, Error>) throws -> OpenSSHConfigHost {
         var values: [String: String] = [:]
         var seenOptions: Set<String> = []
+        var identityPaths: [String] = []
+        var needsIdentityFile = false
         for block in blocks where block.matches(alias) {
             for (key, arguments) in block.options {
-                guard seenOptions.insert(key).inserted else { continue }
+                guard key == "identityfile" || seenOptions.insert(key).inserted else { continue }
                 switch key {
                 case "hostname", "user", "port":
                     guard arguments.count == 1 else { throw ConfigError("Invalid \(key) setting.") }
@@ -216,18 +284,34 @@ private struct Parser {
                     // Even ProxyCommand none blocks later jumps. ProxyJump none,
                     // however, still allows a subsequent ProxyCommand to take effect.
                     continue
-                case "proxyjump", "proxycommand":
-                    if arguments.map({ $0.lowercased() }) != ["none"] { throw ConfigError("\(key) requires a proxy connection.") }
+                case "proxyjump":
+                    let jump = arguments[0]
+                    if arguments.count == 1, jump.lowercased() == "none" { continue }
+                    guard arguments.count == 1, !jump.isEmpty, !jump.hasPrefix("-"),
+                          jump.allSatisfy({ $0.isLetter || $0.isNumber || "._-".contains($0) })
+                    else { throw ConfigError("ProxyJump must name a single Host alias from this configuration.") }
+                    values[key] = jump
+                case "proxycommand":
+                    if values["proxyjump"] == nil, arguments.map({ $0.lowercased() }) != ["none"] {
+                        throw ConfigError("\(key) requires a proxy connection.")
+                    }
                 case "canonicalizehostname":
                     if !Self.isDisabled(arguments) { throw ConfigError("Hostname canonicalization requires OpenSSH.") }
                 case "identitiesonly":
-                    if !Self.isDisabled(arguments) { throw ConfigError("IdentitiesOnly requires a specific SSH identity.") }
+                    if !Self.isDisabled(arguments) {
+                        guard arguments.count == 1, ["yes", "true"].contains(arguments[0].lowercased()) else {
+                            throw ConfigError("Invalid \(key) setting.")
+                        }
+                        needsIdentityFile = true
+                    }
                 case "identityagent":
-                    if arguments != ["SSH_AUTH_SOCK"] { throw ConfigError("IdentityAgent changes the SSH agent used for authentication.") }
-                case "identityfile", "addkeystoagent", "usekeychain", "ignoreunknown",
+                    if arguments == ["none"] { needsIdentityFile = true }
+                    else if arguments != ["SSH_AUTH_SOCK"] { throw ConfigError("IdentityAgent changes the SSH agent used for authentication.") }
+                case "identityfile":
+                    guard arguments.count == 1 else { throw ConfigError("Invalid \(key) setting.") }
+                    identityPaths.append(arguments[0])
+                case "addkeystoagent", "usekeychain", "ignoreunknown",
                      "serveraliveinterval", "serveralivecountmax", "tcpkeepalive", "loglevel", "compression":
-                    // Credentials are selected independently in catussh. Keepalive,
-                    // logging and compression settings do not select a destination.
                     continue
                 default:
                     throw ConfigError("Unsupported OpenSSH directive: \(key).")
@@ -246,6 +330,8 @@ private struct Parser {
         guard portText.allSatisfy({ $0.isASCII && $0.isNumber }), let port = UInt16(portText), port > 0 else {
             throw ConfigError("Invalid port.")
         }
-        return OpenSSHConfigHost(alias: alias, hostname: hostname, username: username, port: Int(port))
+        let file = try identityPaths.isEmpty ? defaultIdentity.get() : identityFile(paths: identityPaths)
+        if needsIdentityFile, file == nil { throw ConfigError("This authentication configuration requires a specific SSH key.") }
+        return OpenSSHConfigHost(alias: alias, hostname: hostname, username: username, port: Int(port), jumpAlias: values["proxyjump"], identityFile: file)
     }
 }

@@ -70,9 +70,9 @@ brew install --cask mizorewww/tap/catussh
 
 ## 使用 catussh
 
-首次使用時，指引會讀取 `~/.ssh/config`。確認主機別名、使用者名稱、位址及連接埠後，勾選要儲存的主機並按 **Import Selected**。之後可從 **Servers → Import from This Mac…** 再次掃描。已有的名稱會略過，需要跳板或其他設定的主機則會另外列出。
+首次使用時，指引會顯示讀取的設定檔路徑，預設為 `~/.ssh/config`。核對各主機的使用者名稱、位址、連接埠、金鑰檔及跳板後，按 **Import Selected**。勾選目標也會選取它依賴的新跳板。之後可從 **Servers → Import from This Mac…** 重新掃描。
 
-匯入的帳號使用本機 SSH Agent 登入。可用 `ssh-add -l` 查看載入的金鑰。若平時使用預設的 Ed25519 金鑰且 Agent 尚未載入，請先執行 `ssh-add ~/.ssh/id_ed25519`，再從 **Servers → Terminal** 連線。也可在 **Identities** 為該帳號設定密碼或金鑰檔。
+指引可辨識指定的 `IdentityFile` 或唯一可用的預設金鑰。匯入時只在本機儲存檔案位置，連線時才使用金鑰。若金鑰已加密，請在 **Identities → Local key file** 輸入本次執行所用的密語。沒有金鑰檔的主機可使用 SSH Agent。先前匯入的 Agent 帳號可以勾選 **Update login**。手動儲存且只有使用者名稱的書籤，也可以勾選更新。已有密碼或金鑰的手動紀錄會保留；多級跳板或無法判別的金鑰會列出原因。
 
 1. **新增伺服器**：在首頁按 **New Server**（⇧⌘N）。
 2. **連線**：按伺服器卡片。**Files** 開啟 SFTP，**Monitor** 開啟即時用量；工具列切換器可在三者間切換。

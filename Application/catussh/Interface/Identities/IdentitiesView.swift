@@ -156,7 +156,9 @@ enum IdentityActions {
     static func duplicate(_ id: RDIdentity.ID) {
         var copy = CatusshStore.shared.identityGroup[id]
         guard !copy.username.isEmpty else { return }
+        let draft = IdentityDraft(copy)
         copy.id = UUID()
+        if copy.usesLocalKeyFile { copy = draft.saving(to: copy) }
         copy.comment = copy.comment.isEmpty ? "Copy" : copy.comment + " (copy)"
         CatusshStore.shared.identityGroup.insert(copy)
     }
@@ -174,6 +176,7 @@ enum IdentityActions {
             destructive: true
         ) { confirmed in
             guard confirmed else { return }
+            if identity.usesLocalKeyFile { LocalSSHKeyFile.setURL(nil, for: id) }
             store.identityGroup.delete(id)
         }
     }
@@ -230,7 +233,7 @@ private struct IdentityDetail: View {
                     .buttonStyle(.rx(size: .small))
                     .disabled(!draft.differs(from: original))
                 Button("Save") {
-                    store.identityGroup.insert(draft.apply(to: original))
+                    store.identityGroup.insert(draft.saving(to: original))
                 }
                 .buttonStyle(.rx(.primary, size: .small))
                 .keyboardShortcut("s", modifiers: .command)
@@ -259,7 +262,7 @@ private struct IdentityDetail: View {
             // Keep edits when another identity is selected.
             let stillExists = store.identityGroup.identities.contains { $0.id == identity }
             if stillExists, draft.differs(from: original), draft.isValid {
-                store.identityGroup.insert(draft.apply(to: original))
+                store.identityGroup.insert(draft.saving(to: original))
             }
         }
     }
@@ -294,6 +297,7 @@ struct IdentityForm: View {
             RXField("Authentication") {
                 RXSegmented(selection: $draft.method, options: [
                     .init(.keyPair, "Key pair"),
+                    .init(.localKeyFile, String(localized: "Local key file")),
                     .init(.password, "Password"),
                     .init(.sshAgent, "SSH Agent"),
                 ], caps: false, fullWidth: true)
@@ -334,6 +338,32 @@ struct IdentityForm: View {
                         TextField("Optional", text: $draft.comment)
                             .textFieldStyle(.rx)
                     }
+                }
+            } else if draft.method == .localKeyFile {
+                RXField(String(localized: "Local private key")) {
+                    HStack {
+                        RXValueField(draft.localKeyURL?.path ?? "", placeholder: String(localized: "Choose a key on this Mac"), monospaced: true)
+                        Button("Choose…") {
+                            UIBridge.openPanel(message: String(localized: "Choose the SSH private key for this login."), prompt: String(localized: "Choose"),
+                                               directory: draft.localKeyURL?.deletingLastPathComponent() ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".ssh"),
+                                               canChooseFiles: true, canChooseDirectories: false, allowsMultipleSelection: false,
+                                               canCreateDirectories: false, showsHiddenFiles: true) { urls in
+                                if let url = urls.first, url != draft.localKeyURL {
+                                    draft.localKeyURL = url
+                                    draft.localKeyPassphrase = ""
+                                }
+                            }
+                        }
+                        .buttonStyle(.rx)
+                    }
+                }
+                RXField(String(localized: "Passphrase for this app session")) {
+                    SecureField("Optional", text: $draft.localKeyPassphrase)
+                        .textFieldStyle(.rx)
+                }
+                HelpText(String(localized: "The key stays in its file on this Mac. For an encrypted key, enter the passphrase again after restarting catussh."))
+                RXField("Comment") {
+                    TextField("Optional", text: $draft.comment).textFieldStyle(.rx)
                 }
             } else if draft.method == .password {
                 HStack(alignment: .top, spacing: RX.Space.s4) {
@@ -458,7 +488,7 @@ struct IdentityEditorSheet: View {
                     authenticAutomatically: true,
                     attachment: [:]
                 )
-                base = draft.apply(to: base)
+                base = draft.saving(to: base)
                 store.identityGroup.insert(base)
                 onComplete(base.id)
             }

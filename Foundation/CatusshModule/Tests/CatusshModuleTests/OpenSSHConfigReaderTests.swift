@@ -15,6 +15,8 @@ final class OpenSSHConfigReaderTests: XCTestCase {
 
     func testDefaultsAliasesQuotesAndFirstMatchingValue() throws {
         try withDirectory { directory in
+            let key = directory.appendingPathComponent("my key").resolvingSymlinksInPath()
+            try write("fixture", to: key)
             try write("""
             User = "DefaultUser" # before any Host
             Host "build" build2
@@ -34,8 +36,8 @@ final class OpenSSHConfigReaderTests: XCTestCase {
             """, to: directory.appendingPathComponent("config"))
             let preview = try OpenSSHConfigReader.read(directory: directory)
             XCTAssertEqual(preview.hosts, [
-                .init(alias: "build", hostname: "build.example.com", username: "DefaultUser", port: 2222),
-                .init(alias: "build2", hostname: "build2.example.com", username: "DefaultUser", port: 2201),
+                .init(alias: "build", hostname: "build.example.com", username: "DefaultUser", port: 2222, identityFile: key),
+                .init(alias: "build2", hostname: "build2.example.com", username: "DefaultUser", port: 2201, identityFile: key),
                 .init(alias: "Build", hostname: "2001:db8::1", username: "DefaultUser", port: 22),
             ])
             XCTAssertTrue(preview.skipped.isEmpty)
@@ -93,6 +95,95 @@ final class OpenSSHConfigReaderTests: XCTestCase {
             XCTAssertEqual(preview.hosts.map(\.alias), ["direct", "disabled-command"])
             XCTAssertEqual(preview.skipped.map(\.alias), ["overridden-jump"])
             XCTAssertTrue(preview.skipped[0].reason.lowercased().contains("proxycommand"))
+        }
+    }
+
+    func testResolvesDefaultAndRestrictedKeysAndForwardJumpReference() throws {
+        try withDirectory { directory in
+            let key = directory.appendingPathComponent("id_ed25519").resolvingSymlinksInPath()
+            try write("metadata-only fixture", to: key)
+            try write("""
+            Host app
+                HostName 192.0.2.10
+                User ubuntu
+                IdentitiesOnly yes
+                IdentityFile ~/.ssh/id_ed25519
+                ProxyJump gateway
+            Host gateway
+                HostName 192.0.2.20
+                User dev
+            """, to: directory.appendingPathComponent("config"))
+            let preview = try OpenSSHConfigReader.read(directory: directory)
+            XCTAssertEqual(preview.hosts, [
+                .init(alias: "app", hostname: "192.0.2.10", username: "ubuntu", port: 22, jumpAlias: "gateway", identityFile: key),
+                .init(alias: "gateway", hostname: "192.0.2.20", username: "dev", port: 22, identityFile: key),
+            ])
+            XCTAssertTrue(preview.skipped.isEmpty)
+        }
+    }
+
+    func testRejectsMissingChainedAndCyclicJumps() throws {
+        try withDirectory { directory in
+            try write("""
+            Host gateway
+            Host hop
+                ProxyJump gateway
+            Host chained
+                ProxyJump hop
+            Host missing
+                ProxyJump nowhere
+            Host cycle-a
+                ProxyJump cycle-b
+            Host cycle-b
+                ProxyJump cycle-a
+            Host self
+                ProxyJump self
+            Host multihop
+                ProxyJump gateway,hop
+            Host via-invalid
+                ProxyJump broken
+            Host broken
+                Port 70000
+            """, to: directory.appendingPathComponent("config"))
+            let preview = try OpenSSHConfigReader.read(directory: directory)
+            XCTAssertEqual(preview.hosts.map(\.alias), ["gateway", "hop"])
+            XCTAssertEqual(preview.hosts.last?.jumpAlias, "gateway")
+            XCTAssertEqual(preview.skipped.map(\.alias), ["chained", "missing", "cycle-a", "cycle-b", "self", "multihop", "via-invalid", "broken"])
+        }
+    }
+
+    func testMultipleKeysMissingFilesAndOutsideSymlinksNeverFallBackToAgent() throws {
+        try withDirectory { directory in
+            let first = directory.appendingPathComponent("id_rsa").resolvingSymlinksInPath()
+            let second = directory.appendingPathComponent("id_ed25519")
+            try write("fixture", to: first)
+            try write("fixture", to: second)
+            try withDirectory { outside in
+                let external = outside.appendingPathComponent("key")
+                try write("fixture", to: external)
+                try FileManager.default.createSymbolicLink(at: directory.appendingPathComponent("external"), withDestinationURL: external)
+                try write("""
+                Host multiple-defaults
+                Host explicit
+                    IdentityFile ~/.ssh/id_rsa
+                    IdentityAgent none
+                Host additive
+                    IdentityFile ~/.ssh/id_ed25519
+                Host additive
+                    IdentityFile ~/.ssh/id_rsa
+                Host outside
+                    IdentityFile ~/.ssh/external
+                Host missing
+                    IdentityFile ~/.ssh/absent
+                Host no-file
+                    IdentityFile none
+                """, to: directory.appendingPathComponent("config"))
+                let preview = try OpenSSHConfigReader.read(directory: directory)
+                XCTAssertEqual(preview.hosts.map(\.alias), ["explicit", "no-file"])
+                XCTAssertEqual(preview.hosts.first?.identityFile, first)
+                XCTAssertNil(preview.hosts.last?.identityFile)
+                XCTAssertEqual(preview.skipped.map(\.alias), ["multiple-defaults", "additive", "outside", "missing"])
+            }
         }
     }
 

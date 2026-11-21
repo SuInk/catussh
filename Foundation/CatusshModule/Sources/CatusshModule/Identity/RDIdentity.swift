@@ -52,7 +52,35 @@ public struct RDIdentity: Codable, Identifiable, Equatable, Sendable {
 
     public var useSSHAgent: Bool {
         get { attachment["auth.sshAgent"] == "1" }
-        set { attachment["auth.sshAgent"] = newValue ? "1" : nil }
+        set {
+            attachment["auth.sshAgent"] = newValue ? "1" : nil
+            if newValue { attachment["auth.localKeyFile"] = nil }
+        }
+    }
+
+    public var usesLocalKeyFile: Bool {
+        get { attachment["auth.localKeyFile"] == "1" }
+        set {
+            attachment["auth.localKeyFile"] = newValue ? "1" : nil
+            if newValue {
+                useSSHAgent = false
+                password = ""
+                privateKey = ""
+                publicKey = ""
+            }
+        }
+    }
+
+    public var localKeyAuthenticationHint: String? {
+        guard usesLocalKeyFile else { return nil }
+        #if os(macOS)
+            if LocalSSHKeyFile.readableURL(for: id) == nil {
+                return String(localized: "Choose a readable local key file for this login in Identities on this Mac.")
+            }
+            return String(localized: "Check the username and key in Identities. For an encrypted key, enter its passphrase there for this app session.")
+        #else
+            return String(localized: "This login uses a local key file on a Mac. Choose a key pair or password in Identities on this device.")
+        #endif
     }
 
     public func shortDescription() -> String {
@@ -70,6 +98,7 @@ public struct RDIdentity: Codable, Identifiable, Equatable, Sendable {
     }
 
     public func getKeyType() -> String {
+        if usesLocalKeyFile { return String(localized: "Local key file") }
         if useSSHAgent {
             return "SSH Agent"
         } else if privateKey.count > 0, publicKey.count > 0 {
@@ -95,7 +124,10 @@ public struct RDIdentity: Codable, Identifiable, Equatable, Sendable {
 
     public func callAuthenticationWith(remote: NSRemoteShell) {
         if remote.isAuthenticated { return }
-        if useSSHAgent {
+        if usesLocalKeyFile {
+            remote.authenticate(username: username, localKeyFile: LocalSSHKeyFile.readableURL(for: id)?.path,
+                                passphrase: LocalSSHKeyFile.passphrase(for: id))
+        } else if useSSHAgent {
             remote.authenticate(withAgent: username)
         } else if privateKey.count > 0 || publicKey.count > 0 {
             remote.authenticate(with: username, andPublicKey: publicKey, andPrivateKey: privateKey, andPassword: password)
@@ -121,6 +153,7 @@ public struct RDIdentity: Codable, Identifiable, Equatable, Sendable {
 public extension RDIdentity {
     /// "Key pair · ed25519", "Password", "SSH Agent" style description.
     var authDescription: String {
+        if usesLocalKeyFile { return String(localized: "Local key file") }
         if useSSHAgent { return "SSH Agent" }
         if !privateKey.isEmpty {
             if let type = keyAlgorithm { return "Key pair · \(type)" }

@@ -57,6 +57,10 @@
 
 @implementation NSRemoteShell
 
+// Unlocking an OpenSSH key can take longer than the TCP connection timeout
+// (bcrypt cost is part of the key file). Leave time for that local work.
+static const int localKeyUnlockAllowance = 60;
+
 static NSString *NSRemoteSFTPFailureDescription(LIBSSH2_SFTP * _Nullable sftp, NSString * _Nullable fallback) {
     if (sftp) {
         unsigned long code = libssh2_sftp_last_error(sftp);
@@ -314,6 +318,21 @@ continue; \
 }
 
 - (void)authenticateWith:(NSString*)username andPublicKey:(NSString*)publicKey andPrivateKey:(NSString*)privateKey andPassword:(NSString*)password {
+    [self enqueueKeyAuthentication:username publicKey:publicKey privateKey:privateKey file:nil passphrase:password];
+}
+
+- (void)authenticateWith:(NSString*)username localKeyFile:(NSString*)path passphrase:(NSString*)passphrase {
+    if (!path.length) {
+        @synchronized (self) {
+            self.lastError = NSLocalizedString(@"The local key file is unavailable on this device. Choose a key in Identities.", nil);
+        }
+        return;
+    }
+    [self enqueueKeyAuthentication:username publicKey:nil privateKey:nil file:path passphrase:passphrase];
+}
+
+- (void)enqueueKeyAuthentication:(NSString*)username publicKey:(NSString*)publicKey privateKey:(NSString*)privateKey
+                            file:(NSString*)path passphrase:(NSString*)password {
     if (self.destroyed) return;
     dispatch_semaphore_t sem = dispatch_semaphore_create(0);
     @synchronized (self.requestInvokations) {
@@ -321,13 +340,18 @@ continue; \
             [self unsafeAuthenticateWith:username
                              andPublicKey:publicKey
                             andPrivateKey:privateKey
+                                 fromFile:path
                               andPassword:password];
             DISPATCH_SEMAPHORE_CHECK_SIGNLE(sem);
         } copy];
         [self.requestInvokations addObject:block];
     }
     [self.associatedLoop explicitRequestHandle];
-    MakeDispatchSemaphoreWaitWithTimeout(sem)
+    if (path && password.length) {
+        dispatch_semaphore_wait(sem, dispatch_time(DISPATCH_TIME_NOW, (DISPATCH_SEMAPHORE_MAX_WAIT + localKeyUnlockAllowance) * (int64_t)NSEC_PER_SEC));
+    } else {
+        MakeDispatchSemaphoreWaitWithTimeout(sem)
+    }
 }
 
 - (void)authenticateWithAgent:(NSString*)username {
@@ -998,6 +1022,7 @@ continue; \
 - (void)unsafeAuthenticateWith:(NSString*)username
                   andPublicKey:(NSString*)publicKey
                  andPrivateKey:(NSString*)privateKey
+                      fromFile:(NSString*)path
                    andPassword:(NSString*)password {
     if (![self unsafeValidateSession]) {
         [self unsafeDisconnect];
@@ -1008,7 +1033,13 @@ continue; \
     }
     LIBSSH2_SESSION *session = self.associatedSession;
     BOOL authenticated = NO;
-    NSDate *date = [[NSDate alloc] initWithTimeIntervalSinceNow:[self.operationTimeout intValue]];
+    NSTimeInterval timeout = self.operationTimeout.doubleValue + (path && password.length ? localKeyUnlockAllowance : 0);
+    NSDate *date = [NSDate dateWithTimeIntervalSinceNow:timeout];
+    NSString *publicFile = path ? [path stringByAppendingString:@".pub"] : nil;
+    if (publicFile) {
+        NSDictionary *attributes = [[NSFileManager defaultManager] attributesOfItemAtPath:publicFile error:NULL];
+        if (![attributes[NSFileType] isEqual:NSFileTypeRegular]) { publicFile = nil; }
+    }
     while (true) {
         if ([date timeIntervalSinceNow] < 0) {
             libssh2_session_set_last_error(session, LIBSSH2_ERROR_TIMEOUT, NULL);
@@ -1021,11 +1052,12 @@ continue; \
         const char *pri = privateKey ? [privateKey UTF8String] : NULL;
         unsigned int prl = privateKey ? (unsigned int)strlen(pri) : 0;
         const char *pwd = password ? [password UTF8String] : NULL;
-        long long rc = libssh2_userauth_publickey_frommemory(session,
-                                                             name, (unsigned int)nl,
-                                                             pub, (unsigned int)pul,
-                                                             pri, (unsigned int)prl,
-                                                             pwd);
+        int rc;
+        if (path) {
+            rc = libssh2_userauth_publickey_fromfile_ex(session, name, nl, publicFile.fileSystemRepresentation, path.fileSystemRepresentation, pwd);
+        } else {
+            rc = libssh2_userauth_publickey_frommemory(session, name, nl, pub, pul, pri, prl, pwd);
+        }
         if (rc == LIBSSH2_ERROR_EAGAIN) {
             usleep(LIBSSH2_CONTINUE_EAGAIN_WAIT);
             continue;

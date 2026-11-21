@@ -89,6 +89,7 @@ public struct IdentityDraft: Equatable, Sendable {
         case keyPair
         case password
         case sshAgent
+        case localKeyFile
     }
 
     public var username = ""
@@ -98,6 +99,8 @@ public struct IdentityDraft: Equatable, Sendable {
     public var passphrase = ""
     public var privateKey = ""
     public var publicKey = ""
+    public var localKeyURL: URL?
+    public var localKeyPassphrase = ""
     public var comment = ""
     public var automatic = true
 
@@ -106,7 +109,11 @@ public struct IdentityDraft: Equatable, Sendable {
     public init(_ identity: RDIdentity) {
         username = identity.username
         group = identity.group
-        if identity.useSSHAgent {
+        if identity.usesLocalKeyFile {
+            method = .localKeyFile
+            localKeyURL = LocalSSHKeyFile.url(for: identity.id)
+            localKeyPassphrase = LocalSSHKeyFile.passphrase(for: identity.id)
+        } else if identity.useSSHAgent {
             method = .sshAgent
             password = ""
             passphrase = ""
@@ -134,6 +141,12 @@ public struct IdentityDraft: Equatable, Sendable {
             return !privateKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .sshAgent:
             return true
+        case .localKeyFile:
+            #if os(macOS)
+                return localKeyURL != nil
+            #else
+                return true // Preserve a Mac identity when editing its display fields.
+            #endif
         }
     }
 
@@ -142,6 +155,7 @@ public struct IdentityDraft: Equatable, Sendable {
         result.username = username.trimmingCharacters(in: .whitespaces)
         result.group = group
         result.useSSHAgent = (method == .sshAgent)
+        result.usesLocalKeyFile = (method == .localKeyFile)
         switch method {
         case .keyPair:
             result.password = passphrase
@@ -151,7 +165,7 @@ public struct IdentityDraft: Equatable, Sendable {
             result.password = password
             result.privateKey = ""
             result.publicKey = ""
-        case .sshAgent:
+        case .sshAgent, .localKeyFile:
             result.password = ""
             result.privateKey = ""
             result.publicKey = ""
@@ -161,9 +175,21 @@ public struct IdentityDraft: Equatable, Sendable {
         return result
     }
 
+    /// Commit local settings only when saving, never while checking for edits.
+    public func saving(to identity: RDIdentity) -> RDIdentity {
+        if method == .localKeyFile {
+            LocalSSHKeyFile.setURL(localKeyURL, for: identity.id)
+            LocalSSHKeyFile.setPassphrase(localKeyPassphrase, for: identity.id)
+        } else if identity.usesLocalKeyFile {
+            LocalSSHKeyFile.setURL(nil, for: identity.id)
+        }
+        return apply(to: identity)
+    }
+
     public func differs(from identity: RDIdentity) -> Bool {
-        let originalMethod: Method = identity.useSSHAgent ? .sshAgent : (identity.privateKey.isEmpty ? .password : .keyPair)
-        if method != originalMethod { return true }
+        if method == .localKeyFile,
+           localKeyURL != LocalSSHKeyFile.url(for: identity.id) || localKeyPassphrase != LocalSSHKeyFile.passphrase(for: identity.id)
+        { return true }
         let edited = apply(to: identity)
         return edited.username != identity.username
             || edited.group != identity.group
@@ -171,6 +197,7 @@ public struct IdentityDraft: Equatable, Sendable {
             || edited.privateKey != identity.privateKey
             || edited.publicKey != identity.publicKey
             || edited.useSSHAgent != identity.useSSHAgent
+            || edited.usesLocalKeyFile != identity.usesLocalKeyFile
             || edited.comment != identity.comment
             || edited.authenticAutomatically != identity.authenticAutomatically
     }

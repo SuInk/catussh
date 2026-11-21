@@ -95,6 +95,7 @@ public extension NSRemoteShell {
         guard isConnected else { return .connectFailed }
         if let identity {
             identity.callAuthenticationWith(remote: self)
+            if !isAuthenticated, let message = identity.localKeyAuthenticationHint { hint?(message) }
         } else {
             authenticateWithAutoIdentities(autoIdentities, hint: hint)
         }
