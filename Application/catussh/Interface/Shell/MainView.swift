@@ -13,6 +13,8 @@ struct MainView: View {
 
     @State private var openLicenseAgreement = false
     @State private var settingsOpened = false
+    @AppStorage("sshSetupOffered") private var sshSetupOffered = false
+    @State private var showSSHSetup = false
 
     var body: some View {
         NavigationSplitView(columnVisibility: $router.columnVisibility) {
@@ -59,20 +61,31 @@ struct MainView: View {
             ServerEditorSheet(machine: nil)
                 .environmentObject(CatusshStore.shared)
         }
-        .sheet(isPresented: $openLicenseAgreement) {
+        .sheet(isPresented: $showSSHSetup) {
+            SSHSetupSheet()
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $openLicenseAgreement, onDismiss: offerSSHSetup) {
             AgreementSheet()
         }
         .onAppear {
-            if !store.licenseAgreed { openLicenseAgreement = true }
+            if store.licenseAgreed { offerSSHSetup() }
+            else { openLicenseAgreement = true }
         }
+    }
+
+    private func offerSSHSetup() {
+        guard store.licenseAgreed, !sshSetupOffered else { return }
+        sshSetupOffered = true
+        if store.machineGroup.machines.isEmpty { showSSHSetup = true }
     }
 
     @ViewBuilder var content: some View {
         switch router.route {
         case .home:
-            HomeView()
+            HomeView { showSSHSetup = true }
         case .servers:
-            ServersView()
+            ServersView { showSSHSetup = true }
         case .identities:
             IdentitiesView()
         case .snippets:

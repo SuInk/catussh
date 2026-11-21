@@ -12,6 +12,7 @@ import SwiftUI
 
 struct ServersView: View {
     @EnvironmentObject var store: CatusshStore
+    let showSSHSetup: () -> Void
     @ObservedObject var router = AppRouter.shared
     /// The toolbar names the account item by whether one is signed in.
     @ObservedObject private var account = UURemoteAccountStore.shared
@@ -66,7 +67,13 @@ struct ServersView: View {
             .disabled(store.machineGroup.machines.isEmpty)
         } header: {
             VStack(alignment: .leading, spacing: RX.Space.s3) {
-                PageTitle("Servers")
+                HStack {
+                    PageTitle("Servers")
+                    Button(action: showSSHSetup) {
+                        Label("Import from This Mac…", systemImage: "square.and.arrow.down")
+                    }
+                    .buttonStyle(.rx)
+                }
                 if store.machineRedacted != .none {
                     RedactionBanner()
                 }

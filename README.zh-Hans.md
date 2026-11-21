@@ -16,6 +16,8 @@
 
 ## 安装
 
+本 fork 的 macOS 版增加了本机 SSH 配置导入向导。要体验向导，请按下文「从源码构建」运行本仓库。以下 Homebrew 命令安装上游发行版。
+
 ```sh
 brew install --cask mizorewww/tap/catussh
 ```
@@ -68,6 +70,10 @@ brew install --cask mizorewww/tap/catussh
 
 ## 使用 catussh
 
+首次使用时，向导会读取 `~/.ssh/config`。核对主机别名、登录用户、地址和端口，勾选要保存的主机，再点 **导入所选主机**。以后可从 **Servers → 从本机导入…** 重新扫描。同名记录会跳过，需要跳板等额外设置的主机会列在「需要手动配置」下。
+
+新导入的登录身份使用本机 SSH Agent。在终端运行 `ssh-add -l` 可查看已加载的密钥。如果平时用默认的 Ed25519 密钥，而 Agent 里还没有它，运行 `ssh-add ~/.ssh/id_ed25519`，再从 **Servers → Terminal** 连接。也可在 **Identities** 中为这个用户名选择密码或密钥文件。
+
 1. **添加服务器**：在主页点 **New Server**（⇧⌘N）。
 2. **连接**：点服务器卡片。**Files** 打开 SFTP，**Monitor** 打开实时用量；工具栏切换器可在三者间切换。
 3. **快速连接**：在主页输入 `user@host`、`user@host:2222` 或完整的 `ssh` 命令。
@@ -79,7 +85,7 @@ brew install --cask mizorewww/tap/catussh
 需要 Xcode 26 或更高版本（Swift 6.2）。
 
 ```sh
-git clone https://github.com/mizorewww/catussh.git
+git clone https://github.com/SuInk/catussh.git
 cd catussh
 bash Workflow/Scripts/install-macos.sh   # Release 构建，并安装到 /Applications
 ```

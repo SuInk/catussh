@@ -16,6 +16,8 @@
 
 ## 安裝
 
+此 fork 的 macOS 版加入本機 SSH 設定匯入指引。請依下文「從原始碼建置」執行這個版本。下列 Homebrew 指令安裝上游發行版。
+
 ```sh
 brew install --cask mizorewww/tap/catussh
 ```
@@ -68,6 +70,10 @@ brew install --cask mizorewww/tap/catussh
 
 ## 使用 catussh
 
+首次使用時，指引會讀取 `~/.ssh/config`。確認主機別名、使用者名稱、位址及連接埠後，勾選要儲存的主機並按 **Import Selected**。之後可從 **Servers → Import from This Mac…** 再次掃描。已有的名稱會略過，需要跳板或其他設定的主機則會另外列出。
+
+匯入的帳號使用本機 SSH Agent 登入。可用 `ssh-add -l` 查看載入的金鑰。若平時使用預設的 Ed25519 金鑰且 Agent 尚未載入，請先執行 `ssh-add ~/.ssh/id_ed25519`，再從 **Servers → Terminal** 連線。也可在 **Identities** 為該帳號設定密碼或金鑰檔。
+
 1. **新增伺服器**：在首頁按 **New Server**（⇧⌘N）。
 2. **連線**：按伺服器卡片。**Files** 開啟 SFTP，**Monitor** 開啟即時用量；工具列切換器可在三者間切換。
 3. **快速連線**：在首頁輸入 `user@host`、`user@host:2222` 或完整的 `ssh` 指令。
@@ -79,7 +85,7 @@ brew install --cask mizorewww/tap/catussh
 需要 Xcode 26 或以上版本（Swift 6.2）。
 
 ```sh
-git clone https://github.com/mizorewww/catussh.git
+git clone https://github.com/SuInk/catussh.git
 cd catussh
 bash Workflow/Scripts/install-macos.sh   # Release 建置，並安裝到 /Applications
 ```

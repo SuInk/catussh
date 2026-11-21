@@ -17,6 +17,8 @@ monitor, side by side for every server.
 
 ## Install
 
+This fork includes an SSH setup guide for macOS. To try it, build this repository using the steps below. The Homebrew cask installs the upstream release.
+
 ```sh
 brew install --cask mizorewww/tap/catussh
 ```
@@ -73,6 +75,10 @@ download the disk image from [Releases](https://github.com/mizorewww/catussh/rel
 
 ## Using catussh
 
+On first use, the guide reads `~/.ssh/config`. Review the hostnames, usernames, addresses and ports, then choose **Import Selected**. Reopen it from **Servers → Import from This Mac…**. Existing names are skipped. Hosts that need a proxy or other unsupported settings are listed for manual setup.
+
+Imported logins use the Mac’s SSH agent. Check loaded keys with `ssh-add -l`. If you use the default Ed25519 key and it is missing from the agent, run `ssh-add ~/.ssh/id_ed25519` before opening **Terminal** on the server. You can also set a password or key file for that username in **Identities**.
+
 1. **Add a server**: **New Server** on Home (⇧⌘N).
 2. **Connect**: click a server's tile. **Files** opens SFTP and **Monitor** opens live
    usage; the toolbar switcher moves between the three.
@@ -85,7 +91,7 @@ download the disk image from [Releases](https://github.com/mizorewww/catussh/rel
 Needs Xcode 26 or later (Swift 6.2).
 
 ```sh
-git clone https://github.com/mizorewww/catussh.git
+git clone https://github.com/SuInk/catussh.git
 cd catussh
 bash Workflow/Scripts/install-macos.sh   # Release build, installed to /Applications
 ```

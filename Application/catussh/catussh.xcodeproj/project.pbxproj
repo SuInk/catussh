@@ -52,6 +52,8 @@
 		F02B0EA4860563B18179A98B /* EditorWorkspace.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90844C566AF848CBC562AD8 /* EditorWorkspace.swift */; };
 		F203279EC5DF2195283BAC59 /* FolderActions.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16D39CED118800E0E3CE611C /* FolderActions.swift */; };
 		FCCFF1E12BA8219BDA494B6C /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = B6B1D7BBF2715F710EA328AA /* LICENSE */; };
+		F4702DCCAE732D3081F94674 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = BF29340C8EE49E05390B6671 /* Localizable.strings */; };
+		D1324ABB6FAC5366604B9CE5 /* SSHSetupSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 19C28C315987592656C52EA7 /* SSHSetupSheet.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -101,6 +103,9 @@
 		E08814F00292178F416E81F9 /* MachineStatus */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MachineStatus; path = ../../Foundation/MachineStatus; sourceTree = SOURCE_ROOT; };
 		E90844C566AF848CBC562AD8 /* EditorWorkspace.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorWorkspace.swift; sourceTree = "<group>"; };
 		FA4D32076A4AC0A15D2FE54A /* CatusshModule */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CatusshModule; path = ../../Foundation/CatusshModule; sourceTree = SOURCE_ROOT; };
+		5F9A2B0C9512F17FB226F424 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		C6D62A3C415C0BA0540165D2 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		19C28C315987592656C52EA7 /* SSHSetupSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHSetupSheet.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -196,6 +201,8 @@
 		76354A0AC27E679D6969DC1A /* Servers */ = {
 			isa = PBXGroup;
 			children = (
+				BF29340C8EE49E05390B6671 /* Localizable.strings */,
+				19C28C315987592656C52EA7 /* SSHSetupSheet.swift */,
 				16D39CED118800E0E3CE611C /* FolderActions.swift */,
 				4530642C61B9FB027A243A50 /* ServerActions.swift */,
 				A68BC360409179EF724E3132 /* ServerEditorSheet.swift */,
@@ -400,6 +407,7 @@
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				Base,
+				"zh-Hans",
 				en,
 			);
 			mainGroup = C6A0F47F45A82505AF8BA201;
@@ -429,6 +437,7 @@
 			files = (
 				0487D9ACB0C7C0407E89EBB7 /* Assets.xcassets in Resources */,
 				7E30AF96C9952E31B224B708 /* EULA in Resources */,
+				F4702DCCAE732D3081F94674 /* Localizable.strings in Resources */,
 				FCCFF1E12BA8219BDA494B6C /* LICENSE in Resources */,
 				6BD56223AF4DC93BEEFB53AB /* catussh.icon in Resources */,
 			);
@@ -485,6 +494,7 @@
 				00EA19928EFEED2755FCB704 /* PresentError.swift in Sources */,
 				8C29374EC417DDA473AC4B8C /* RemoteDesktopPage.swift in Sources */,
 				890CFB18971B357C7410BFD2 /* RemoteDesktopsView.swift in Sources */,
+				D1324ABB6FAC5366604B9CE5 /* SSHSetupSheet.swift in Sources */,
 				72A10AD25ABB949565E37D36 /* ServerActions.swift in Sources */,
 				41AA3A107DDCDEFB74252E29 /* ServerEditorSheet.swift in Sources */,
 				D2C986AB96D0E5E7A3B9834F /* ServersView.swift in Sources */,
@@ -502,6 +512,18 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		BF29340C8EE49E05390B6671 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				5F9A2B0C9512F17FB226F424 /* en */,
+				C6D62A3C415C0BA0540165D2 /* zh-Hans */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		5F0632D12446B235C8FF5BD5 /* Debug */ = {

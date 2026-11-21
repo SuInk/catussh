@@ -13,6 +13,7 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject var store: CatusshStore
+    let showSSHSetup: () -> Void
 
     var body: some View {
         ScrollView {
@@ -34,14 +35,21 @@ struct HomeView: View {
 
     @ViewBuilder var serversSection: some View {
         if store.machineGroup.machines.isEmpty {
-            EmptyStateView(
-                "Save a server to reach it in one click",
-                systemImage: "server.rack",
-                message: "Saved servers keep their address, port and identity, and open a terminal, files or a monitor.",
-                actionTitle: "New Server"
-            ) {
-                AppRouter.shared.presentNewServer = true
+            VStack(spacing: RX.Space.s3) {
+                Text("Add your first server")
+                    .font(.rxBodyStrong)
+                Text("Choose hosts from your Mac’s SSH config or enter a server address.")
+                    .font(.rxBody)
+                    .foregroundStyle(.rxInkSecondary)
+                HStack {
+                    Button("Import from This Mac…", action: showSSHSetup)
+                        .buttonStyle(.rxPrimary)
+                    Button("New Server") { AppRouter.shared.presentNewServer = true }
+                        .buttonStyle(.rx)
+                }
             }
+            .padding(RX.Space.s4)
+            .frame(maxWidth: .infinity)
             .frame(maxWidth: 640)
             .rxCard()
         } else {
